@@ -19,7 +19,7 @@ export function TranscriptPanel() {
       return;
     }
     body.scrollTop = body.scrollHeight;
-  }, [transcriptChunks]);
+  }, [transcriptChunks, isRecording]);
 
   const status = isTranscribing ? "transcribing" : isRecording ? "● recording" : "idle";
 
@@ -50,8 +50,11 @@ export function TranscriptPanel() {
         {transcriptChunks.length === 0 && !isRecording ? (
           <div className="empty">No transcript yet — start the mic.</div>
         ) : null}
-        {transcriptChunks.map((chunk) => (
-          <div className="transcript-line" key={chunk.id}>
+        {transcriptChunks.map((chunk, chunkIndex) => (
+          <div
+            className={`transcript-line${chunkIndex === transcriptChunks.length - 1 ? " is-latest" : " is-stale"}`}
+            key={chunk.id}
+          >
             <time>{formatTime(chunk.createdAt)}</time>
             {chunk.text}
           </div>

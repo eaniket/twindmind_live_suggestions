@@ -581,7 +581,6 @@ type SessionSettings = {
   chatPrompt: string;
   suggestionContextChunkCount: number;
   chatContextChunkCount: number;
-  includeChatInSuggestions: boolean;
   autoRefreshSeconds: number;
 };
 ```
@@ -898,7 +897,7 @@ If asked why you built it this way, the strongest answers are:
 - suggestions use strict schema because exact count and structure matter more than streaming
 - chat uses streaming because perceived latency matters there
 - transcript context is bounded to protect latency and rate limits
-- manual refresh flushes audio first because the PRD requires transcript update before suggestions
+- manual refresh should use only already-transcribed visible transcript context
 - the API key is user-supplied and proxied server-side because frontend key exposure is a bad practice
 
 ## Official References Worth Consulting During Implementation

@@ -41,4 +41,4 @@ npm run typecheck
 - Session data is in memory only; no database and no login.
 - Settings are stored in `sessionStorage` for the active tab.
 - Rolling summary is lightweight and local to avoid an extra model call on every chunk.
-- Manual refresh flushes the active recording chunk before generating suggestions so transcript stays current.
+- Manual refresh only uses already-visible transcript context and does not flush the active recording chunk.

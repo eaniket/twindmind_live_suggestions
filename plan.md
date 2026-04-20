@@ -181,7 +181,6 @@ export type SessionSettings = {
   autoRefreshSeconds: number;
   suggestionContextChunkCount: number;
   chatContextChunkCount: number;
-  includeChatInSuggestions: boolean;
   suggestionPrompt: string;
   detailedAnswerPrompt: string;
   chatPrompt: string;
@@ -261,7 +260,6 @@ export const useSessionStore = create<Store>((set) => ({
     autoRefreshSeconds: 30,
     suggestionContextChunkCount: 4,
     chatContextChunkCount: 8,
-    includeChatInSuggestions: true,
     suggestionPrompt: "",
     detailedAnswerPrompt: "",
     chatPrompt: "",
@@ -1068,6 +1066,20 @@ All phases below are completed.
 
 - render assistant chat responses as formatted markdown instead of plain markdown text
 
+### Update 4 - Completed
+
+- [x] generate suggestions only from transcript text that has already been transcribed and is visible in the UI
+- [x] remove manual recorder flush from reload behavior while recording
+- [x] keep transcription on a fixed 30-second cadence while recording
+- [x] keep the suggestion countdown aligned to that same cadence
+- [x] ensure manual reload does not reset the auto-refresh timer
+- [x] render only the newest transcript block at full emphasis and fade older transcript blocks
+
+### Update 5 - Completed
+
+- [x] remove the `Chat history in suggestions` control from Settings
+- [x] always include recent chat turns in suggestion context by default
+
 Use this as the working checklist while building. The order matches the plan above.
 
 ### Phase 1: App Shell - Completed
@@ -1366,15 +1378,13 @@ Use this as the working checklist while building. The order matches the plan abo
 - add a refresh button to the suggestions panel
 - create `handleRefresh`
 - if recording is active:
-  - flush the current recorder chunk
-  - transcribe the partial chunk as `manual-flush`
-  - append transcript
-  - generate suggestions
-  - restart the recorder
+  - generate suggestions only from transcript that is already visible on screen
+  - do not flush or transcribe the in-progress recorder chunk
+  - do not restart or reset the timer
 - if recording is inactive:
   - generate suggestions from current transcript state
 - prevent concurrent refresh while already transcribing or generating
-- verify manual refresh updates transcript first, then suggestions
+- verify manual refresh never changes transcript state
 - verify refresh does not duplicate or lose chunks
 
 ### Phase 17: Recording Loop Control - Completed
@@ -1385,10 +1395,11 @@ Use this as the working checklist while building. The order matches the plan abo
   - set recording state
   - start recorder
 - on auto chunk completion:
+  - immediately start the next 30-second recording window if still recording
   - transcribe
   - append transcript
   - generate suggestions
-  - start next chunk if still recording
+- keep the visible suggestion countdown aligned to the current 30-second recording window
 - on stop:
   - stop current recorder
   - decide whether to flush or discard partial chunk
@@ -1472,6 +1483,38 @@ Use this as the working checklist while building. The order matches the plan abo
 - store summary in session state
 - feed it into suggestions and chat
 - verify it improves continuity without noticeable latency regression
+
+### Phase 25: Flash Reload Purge - Completed
+
+- [x] remove the `Flash reload` toggle from the settings dialog UI
+- [x] remove the lightning icon mode from the reload suggestions button
+- [x] remove any button copy, status text, or UI behavior that implies hidden prefetching
+- [x] remove `flashReload` from `SessionSettings`
+- [x] remove `flashReloadBatch` from session state
+- [x] remove `flashReloadSignature` from session state
+- [x] remove `isFlashReloadPrefetching` from session state
+- [x] remove store actions used only for flash reload state management
+- [x] remove flash reload defaults and normalization from the settings store
+- [x] remove flash reload persistence from `sessionStorage`
+- [x] remove flash reload references from the export payload
+- [x] remove flash reload refs from `lib/session-controller.tsx`
+- [x] remove flash reload invalidation logic from `lib/session-controller.tsx`
+- [x] remove hidden prefetch request logic from `lib/session-controller.tsx`
+- [x] remove auto-advance flash reload logic from `lib/session-controller.tsx`
+- [x] simplify visible suggestion rendering to a single path
+- [x] simplify `refreshSuggestions()` so it always uses the normal visible generation path
+- [x] simplify reload busy-state logic so it depends only on visible work
+- [x] remove all `Future flash reload extension` notes from the plan
+- [x] remove flash reload references from `README.md`
+- [x] remove flash reload references from `research.md`
+- [x] search the repo for `flashReload`, `Flash reload`, and `flash reload` and clear all remaining code references
+- [x] run `npm run typecheck`
+- [x] manually verify:
+  - [x] the settings dialog has no flash reload option
+  - [x] the reload button has only one normal mode
+  - [x] stopping the mic stops all countdown-driven suggestion activity
+  - [x] reload only generates a fresh visible suggestion batch
+  - [x] no hidden prefetch state remains anywhere in the UI or runtime flow
 
 ### Phase 23: Final QA - Completed
 

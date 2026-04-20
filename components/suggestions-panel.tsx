@@ -11,28 +11,52 @@ const suggestionLabels = {
   fact_check: "Fact-check",
 };
 
+const lightingModeTooltip =
+  "In lighting mode, suggestions appear more quickly, with the trade off on last sentence. Turn it off for more accurate suggestions";
+
 export function SuggestionsPanel() {
   const suggestionBatches = useSessionStore((state) => state.suggestionBatches);
+  const isTranscribing = useSessionStore((state) => state.isTranscribing);
   const isGeneratingSuggestions = useSessionStore(
     (state) => state.isGeneratingSuggestions,
   );
-  const { refreshSuggestions, clickSuggestion, countdown } = useSessionController();
+  const lightingMode = useSessionStore((state) => state.settings.lightingMode);
+  const { refreshSuggestions, clickSuggestion, countdown, isReloadBusy } =
+    useSessionController();
+  const isVisibleReloadBusy =
+    isReloadBusy || isTranscribing || isGeneratingSuggestions;
 
   return (
     <section className="panel">
       <header className="panel-header">
-        <span>2. Live Suggestions</span>
+        <span className="panel-heading-with-badge">
+          <span>2. Live Suggestions</span>
+          {lightingMode ? (
+            <span className="lighting-badge-tooltip">
+              <span
+                aria-label={lightingModeTooltip}
+                className="lighting-badge"
+                tabIndex={0}
+              >
+                ⚡
+              </span>
+              <span className="lighting-badge-tooltip-content" role="tooltip">
+                {lightingModeTooltip}
+              </span>
+            </span>
+          ) : null}
+        </span>
         <span>{suggestionBatches.length} batches</span>
       </header>
       <div className="suggestion-toolbar">
         <div className="toolbar-actions">
           <button
-            className="subtle-button"
-            disabled={isGeneratingSuggestions}
+            className="subtle-button white-border-button"
+            disabled={isVisibleReloadBusy}
             onClick={() => void refreshSuggestions()}
             type="button"
           >
-            {isGeneratingSuggestions ? (
+            {isVisibleReloadBusy ? (
               <span aria-hidden="true" className="button-spinner" />
             ) : (
               <span aria-hidden="true">↻ </span>

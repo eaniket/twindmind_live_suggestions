@@ -8,8 +8,7 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import { useSessionStore, getDefaultSettings } from "@/lib/session-store";
 import { downloadJson, buildExportPayload } from "@/lib/export-session";
 import { SessionControllerProvider } from "@/lib/session-controller";
-
-const settingsStorageKey = "twinmind-session-settings";
+import { readStoredSettings, settingsStorageKey } from "@/lib/settings-storage";
 
 export function AppShell() {
   const isSettingsOpen = useSessionStore((state) => state.isSettingsOpen);
@@ -19,17 +18,12 @@ export function AppShell() {
   const error = useSessionStore((state) => state.error);
 
   useEffect(() => {
-    const raw = window.sessionStorage.getItem(settingsStorageKey);
-    if (!raw) {
+    const storedSettings = readStoredSettings();
+    if (!storedSettings) {
       hydrateSettings(getDefaultSettings());
       return;
     }
-    try {
-      const parsed = JSON.parse(raw) as ReturnType<typeof getDefaultSettings>;
-      hydrateSettings(parsed);
-    } catch {
-      hydrateSettings(getDefaultSettings());
-    }
+    hydrateSettings(storedSettings);
   }, [hydrateSettings]);
 
   useEffect(() => {
@@ -54,14 +48,14 @@ export function AppShell() {
           <div className="topbar-actions">
             {error ? <span className="error-text">{error}</span> : null}
             <button
-              className="subtle-button"
+              className="subtle-button white-border-button"
               onClick={exportSession}
               type="button"
             >
               Export
             </button>
             <button
-              className="subtle-button"
+              className="subtle-button settings-glow-button"
               onClick={() => setSettingsOpen(true)}
               type="button"
             >
