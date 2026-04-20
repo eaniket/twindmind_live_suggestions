@@ -10,7 +10,6 @@ export function buildExportPayload(state: SessionState) {
         autoRefreshSeconds: state.settings.autoRefreshSeconds,
         suggestionContextChunkCount: state.settings.suggestionContextChunkCount,
         chatContextChunkCount: state.settings.chatContextChunkCount,
-        includeChatInSuggestions: state.settings.includeChatInSuggestions,
       },
     },
     transcriptChunks: state.transcriptChunks,

@@ -50,8 +50,8 @@ export type SessionSettings = {
   language: string;
   autoRefreshSeconds: number;
   suggestionContextChunkCount: number;
+  lightingMode: boolean;
   chatContextChunkCount: number;
-  includeChatInSuggestions: boolean;
   suggestionPrompt: string;
   detailedAnswerPrompt: string;
   chatPrompt: string;

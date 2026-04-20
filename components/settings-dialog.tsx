@@ -13,6 +13,7 @@ type SettingsFieldName =
   | "language"
   | "autoRefreshSeconds"
   | "suggestionContextChunkCount"
+  | "lightingMode"
   | "chatContextChunkCount"
   | "suggestionPrompt"
   | "detailedAnswerPrompt"
@@ -48,8 +49,8 @@ export function SettingsDialog({ open }: SettingsDialogProps) {
     setDraft({ ...draft, [field]: value });
   };
 
-  const updateToggle = (event: ChangeEvent<HTMLInputElement>) => {
-    setDraft({ ...draft, includeChatInSuggestions: event.target.checked });
+  const toggleBoolean = (field: Extract<SettingsFieldName, "lightingMode">) => {
+    setDraft({ ...draft, [field]: !draft[field] });
   };
 
   const save = () => {
@@ -57,9 +58,40 @@ export function SettingsDialog({ open }: SettingsDialogProps) {
     setSettingsOpen(false);
   };
 
+  const renderTooltip = (
+    label: string,
+    description: string,
+    options?: { align?: "bottom" | "right" },
+  ) => (
+    <span className="settings-label">
+      {label}
+      <span
+        className={`settings-tooltip${options?.align === "right" ? " is-right" : ""}`}
+      >
+        <span
+          aria-label={`${label} info`}
+          className="settings-tooltip-trigger"
+          tabIndex={0}
+        >
+          i
+        </span>
+        <span className="settings-tooltip-content" role="tooltip">
+          {description}
+        </span>
+      </span>
+    </span>
+  );
+
   return (
-    <div className="settings-backdrop">
-      <div className="settings-dialog">
+    <div
+      className="settings-backdrop"
+      onClick={() => setSettingsOpen(false)}
+      role="presentation"
+    >
+      <div
+        className="settings-dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="settings-header">
           <div>
             <div>TwinMind Settings</div>
@@ -68,11 +100,12 @@ export function SettingsDialog({ open }: SettingsDialogProps) {
             </div>
           </div>
           <button
-            className="text-button"
+            aria-label="Close settings"
+            className="settings-close-button"
             onClick={() => setSettingsOpen(false)}
             type="button"
           >
-            Close
+            ×
           </button>
         </div>
 
@@ -88,30 +121,60 @@ export function SettingsDialog({ open }: SettingsDialogProps) {
             />
           </label>
 
-          <label className="settings-field">
-            <span className="settings-label">Language</span>
-            <input
-              className="settings-input"
-              name="language"
-              onChange={updateText}
-              value={draft.language}
-            />
-          </label>
+          <div className="settings-toggle-row settings-toggle-row--triple">
+            <label className="settings-field">
+              <span className="settings-label">Language</span>
+              <input
+                className="settings-input"
+                name="language"
+                onChange={updateText}
+                value={draft.language}
+              />
+            </label>
+
+            <label className="settings-field">
+              <span className="settings-label">Auto refresh seconds</span>
+              <input
+                className="settings-input"
+                min={15}
+                name="autoRefreshSeconds"
+                onChange={updateText}
+                type="number"
+                value={draft.autoRefreshSeconds}
+              />
+            </label>
+
+            <div className="settings-field">
+              <div className="settings-toggle-header">
+                {renderTooltip(
+                  "Lighting mode",
+                  "In lighting mode, suggestions appear more quickly, with the trade off on last sentence. Turn it off for more accurate suggestions",
+                )}
+              </div>
+              <label className="settings-toggle-button">
+                <span className="settings-label-detail">
+                  {draft.lightingMode ? "On" : "Off"}
+                </span>
+                <span className="settings-toggle">
+                  <input
+                    checked={draft.lightingMode}
+                    className="settings-toggle-input"
+                    name="lightingMode"
+                    onChange={() => toggleBoolean("lightingMode")}
+                    type="checkbox"
+                  />
+                  <span className="settings-toggle-switch" />
+                </span>
+              </label>
+            </div>
+          </div>
 
           <label className="settings-field">
-            <span className="settings-label">Auto refresh seconds</span>
-            <input
-              className="settings-input"
-              min={15}
-              name="autoRefreshSeconds"
-              onChange={updateText}
-              type="number"
-              value={draft.autoRefreshSeconds}
-            />
-          </label>
-
-          <label className="settings-field">
-            <span className="settings-label">Suggestion context chunks</span>
+            {renderTooltip(
+              "Suggestion context chunks",
+              "How much transcript the app uses to decide the next 3 live suggestions.",
+              { align: "right" },
+            )}
             <input
               className="settings-input"
               min={1}
@@ -123,7 +186,10 @@ export function SettingsDialog({ open }: SettingsDialogProps) {
           </label>
 
           <label className="settings-field">
-            <span className="settings-label">Chat context chunks</span>
+            {renderTooltip(
+              "Chat context chunks",
+              "How much transcript the app uses to answer a question or expand a clicked suggestion.",
+            )}
             <input
               className="settings-input"
               min={1}
@@ -132,18 +198,6 @@ export function SettingsDialog({ open }: SettingsDialogProps) {
               type="number"
               value={draft.chatContextChunkCount}
             />
-          </label>
-
-          <label className="settings-field is-full">
-            <span className="settings-label">Include chat in suggestions</span>
-            <span className="settings-toggle">
-              <input
-                checked={draft.includeChatInSuggestions}
-                onChange={updateToggle}
-                type="checkbox"
-              />
-              <span className="muted-text">Use recent chat turns in suggestion context</span>
-            </span>
           </label>
 
           <label className="settings-field is-full">
