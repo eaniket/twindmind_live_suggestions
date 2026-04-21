@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import Groq from "groq-sdk";
+import { buildApiErrorResponse } from "@/lib/api-error-response";
 
 type VerboseTranscriptionSegment = {
   start?: number;
@@ -54,12 +55,14 @@ export async function POST(request: NextRequest) {
       })),
     });
   } catch (error) {
+    const apiError = buildApiErrorResponse(
+      error,
+      "Transcription request failed",
+    );
+
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Transcription request failed",
-      },
-      { status: 500 },
+      { error: apiError.message },
+      { status: apiError.status },
     );
   }
 }
