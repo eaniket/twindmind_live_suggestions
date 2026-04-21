@@ -22,7 +22,7 @@ Open the app, add your Groq API key in `Settings`, allow microphone access, and 
 ## USPs(Optimisation)
 
 - `⚡` **Flash reload** mode starts the reload flow when about 90% of `Auto refresh seconds` has elapsed, so the next suggestion batch can appear faster.
-  With a `30s` auto-refresh window, this can cost roughly the last 7 words on average.
+  With a `30s` auto-refresh window, this can cost roughly the last 6 words on average out of 90 transcribed words.
 - A `background metadata service` periodically builds a compact snapshot from recent transcript, rolling summary, suggestion history, and clicked-suggestion patterns. Suggestions and chat use it as guidance for mode, tone, likely next need, and risks, while the refresh runs asynchronously so it does not sit on the visible suggestion/chat latency path.
 - Suggestions and chat use bounded recent context plus a compact `rolling summary` instead of the full transcript, which keeps prompts smaller and refreshes faster.
 
