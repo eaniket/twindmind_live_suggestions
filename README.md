@@ -6,7 +6,11 @@ Next.js app for live meeting assistance with three panes:
 - Three refreshed suggestion cards
 - Chat for typed questions or expanded suggestion answers
 
-## Setup
+## Live Application
+
+Deployed at: https://twindmind-live-suggestions.vercel.app/
+
+## Local Setup
 
 ```bash
 npm install
