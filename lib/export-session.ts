@@ -1,6 +1,10 @@
+import type { ContextMetadataResponse } from "@/types/api";
 import type { SessionState } from "@/types/session";
 
-export function buildExportPayload(state: SessionState) {
+export function buildExportPayload(
+  state: SessionState,
+  contextMetadata: ContextMetadataResponse = null,
+) {
   return {
     session: {
       startedAt: state.startedAt,
@@ -16,6 +20,7 @@ export function buildExportPayload(state: SessionState) {
     suggestionBatches: state.suggestionBatches,
     chatMessages: state.chatMessages,
     rollingSummary: state.rollingSummary,
+    contextMetadata,
   };
 }
 

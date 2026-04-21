@@ -8,7 +8,7 @@ Allowed suggestion types:
 
 - question_to_ask: Use when a clarifying, probing, or advancing question would move the conversation forward.
 - answer_to_give: Use when the user likely needs a direct response, position, update, rationale, or decision statement they can say aloud.
-- talking_point: Use when the user would benefit from a concise framing, argument, comparison, or perspective to introduce naturally.
+- talking_point: Use when the user needs a short strategic angle, framing, tradeoff, or perspective to introduce naturally. It should create leverage in the conversation, not be a full answer, a question, or a next step.
 - next_step: Use when the conversation is moving toward action, alignment, ownership, follow-up, decision-making, or closing.
 - fact_check: Use only when there is a plausible risk that a claim, number, date, dependency, assumption, or statement may be incorrect, outdated, inconsistent, or too confident.
 
