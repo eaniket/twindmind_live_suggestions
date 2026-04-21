@@ -121,10 +121,35 @@ button {
 .lighting-badge {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  color: #ffd44d;
-  font-size: 13px;
+  gap: 7px;
+  padding: 4px 8px;
+  border: 1px solid rgba(207, 211, 220, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #d9dde5;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
   line-height: 1;
+}
+
+.lighting-badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--good);
+  box-shadow:
+    0 0 0 1px rgba(74, 222, 128, 0.2),
+    0 0 8px rgba(74, 222, 128, 0.8);
+}
+
+.lighting-badge-label {
+  white-space: nowrap;
+}
+
+.lighting-badge-icon {
+  color: #ffd44d;
+  font-size: 12px;
   text-shadow:
     0 0 6px rgba(255, 212, 77, 0.65),
     0 0 12px rgba(255, 212, 77, 0.35);

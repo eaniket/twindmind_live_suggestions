@@ -148,7 +148,7 @@ export function SettingsDialog({ open }: SettingsDialogProps) {
               <div className="settings-toggle-header">
                 {renderTooltip(
                   "Lighting mode",
-                  "In lighting mode, suggestions appear more quickly, with the trade off on last sentence. Turn it off for more accurate suggestions",
+                  "In lighting mode, loads faster with the trade off of accuracy. Turn it off from settings for more accurate suggestions",
                 )}
               </div>
               <label className="settings-toggle-button">

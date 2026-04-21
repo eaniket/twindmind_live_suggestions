@@ -13,7 +13,7 @@ const suggestionLabels = {
 };
 
 const lightingModeTooltip =
-  "In lighting mode, suggestions appear more quickly, with the trade off on last sentence. Turn it off for more accurate suggestions";
+  "In lighting mode, loads faster with the trade off of accuracy. Turn it off from settings for more accurate suggestions";
 
 export function SuggestionsPanel() {
   const suggestionBatches = useSessionStore((state) => state.suggestionBatches);
@@ -39,7 +39,11 @@ export function SuggestionsPanel() {
                 className="lighting-badge"
                 tabIndex={0}
               >
-                ⚡
+                <span className="lighting-badge-dot" aria-hidden="true" />
+                <span className="lighting-badge-label">Lighting mode on</span>
+                <span className="lighting-badge-icon" aria-hidden="true">
+                  ⚡
+                </span>
               </span>
               <span className="lighting-badge-tooltip-content" role="tooltip">
                 {lightingModeTooltip}
