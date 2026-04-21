@@ -11,22 +11,25 @@ import {
 import { createChunkRecorder, type RecordedChunk } from "@/lib/audio-recorder";
 import {
   loadSuggestions,
+  refreshContextMetadata,
   streamChatResponse,
   transcribeChunk,
 } from "@/lib/api-client";
 import {
-  buildSuggestionContext,
-  formatChatHistory,
-  formatSuggestionHistory,
-  formatTranscriptChunks,
-} from "@/lib/context";
+  buildReloadSuggestionSnapshot,
+  buildSuggestionClickSeed,
+  buildSuggestionSnapshot,
+  getChatTranscriptText,
+  getRecentChatMessages,
+  type SuggestionSnapshot,
+} from "@/lib/session-controller-helpers";
 import { useSessionStore } from "@/lib/session-store";
 import { readStoredApiKey } from "@/lib/settings-storage";
 import { buildRollingSummary } from "@/lib/summary";
+import type { ChatRequest } from "@/types/api";
 import type {
   Suggestion,
   SuggestionBatch,
-  SessionState,
   TranscriptChunk,
 } from "@/types/session";
 
@@ -45,16 +48,6 @@ const SessionControllerContext = createContext<SessionControllerValue | null>(
   null,
 );
 
-type SuggestionSnapshot = {
-  apiKey: string;
-  rollingSummary: string;
-  transcriptText: string;
-  recentSuggestions: string;
-  basedOnChunkIds: string[];
-  prompt: string;
-  signature: string;
-};
-
 type PendingAutoRefresh = {
   token: number;
   deadline: number;
@@ -65,7 +58,10 @@ type PendingAutoRefresh = {
   status: "prefetching" | "ready";
 };
 
-const AUTO_PREFETCH_LEAD_MS = 5_000;
+const MIN_AUTO_PREFETCH_LEAD_MS = 3_000;
+const MAX_AUTO_PREFETCH_LEAD_MS = 5_000;
+const AUTO_PREFETCH_LEAD_RATIO = 0.10;
+const CHAT_PLACEHOLDER_TEXT = "Thinking...";
 
 function useSessionControllerValue(): SessionControllerValue {
   const countdownRef = useRef(30);
@@ -74,6 +70,7 @@ function useSessionControllerValue(): SessionControllerValue {
   const isRecordingRef = useRef(false);
   const isManualRefreshRef = useRef(false);
   const autoRefreshTokenRef = useRef(0);
+  const metadataCycleRef = useRef(0);
   const pendingAutoRefreshRef = useRef<PendingAutoRefresh | null>(null);
   const [countdown, setCountdown] = useState(30);
   const [isReloadBusy, setIsReloadBusy] = useState(false);
@@ -87,6 +84,9 @@ function useSessionControllerValue(): SessionControllerValue {
   );
   const addSuggestionBatch = useSessionStore((state) => state.addSuggestionBatch);
   const addChatMessage = useSessionStore((state) => state.addChatMessage);
+  const replaceLastAssistantMessage = useSessionStore(
+    (state) => state.replaceLastAssistantMessage,
+  );
   const appendLastAssistantMessage = useSessionStore(
     (state) => state.appendLastAssistantMessage,
   );
@@ -97,6 +97,15 @@ function useSessionControllerValue(): SessionControllerValue {
     countdownRef.current = seconds;
     nextRefreshAtRef.current = baseTime + seconds * 1000;
     setCountdown(seconds);
+  };
+
+  const getAutoPrefetchLeadMs = () => {
+    const autoRefreshMs =
+      useSessionStore.getState().settings.autoRefreshSeconds * 1000;
+    return Math.min(
+      MAX_AUTO_PREFETCH_LEAD_MS,
+      Math.max(MIN_AUTO_PREFETCH_LEAD_MS, autoRefreshMs * AUTO_PREFETCH_LEAD_RATIO),
+    );
   };
 
   const invalidatePendingAutoRefresh = () => {
@@ -133,10 +142,11 @@ function useSessionControllerValue(): SessionControllerValue {
       const remainingMs = nextRefreshAt - Date.now();
       const pendingAutoRefresh = pendingAutoRefreshRef.current;
       const lightingMode = state.settings.lightingMode;
+      const autoPrefetchLeadMs = getAutoPrefetchLeadMs();
       if (
         lightingMode &&
         remainingMs > 0 &&
-        remainingMs <= AUTO_PREFETCH_LEAD_MS &&
+        remainingMs <= autoPrefetchLeadMs &&
         (!pendingAutoRefresh || pendingAutoRefresh.deadline !== nextRefreshAt)
       ) {
         void prefetchAutoRefresh(nextRefreshAt);
@@ -161,59 +171,26 @@ function useSessionControllerValue(): SessionControllerValue {
     }
   };
 
-  const buildSuggestionSnapshot = (
-    state: SessionState,
-    overrides?: Partial<
-      Pick<
-        SessionState,
-        "transcriptChunks" | "suggestionBatches" | "chatMessages" | "rollingSummary"
-      >
-    >,
-  ): SuggestionSnapshot | null => {
-    const transcriptChunks = overrides?.transcriptChunks ?? state.transcriptChunks;
-    const suggestionBatches =
-      overrides?.suggestionBatches ?? state.suggestionBatches;
-    const chatMessages = overrides?.chatMessages ?? state.chatMessages;
-    const rollingSummary = overrides?.rollingSummary ?? state.rollingSummary;
+  const getApiKey = () =>
+    useSessionStore.getState().settings.groqApiKey.trim() || readStoredApiKey();
 
-    if (!transcriptChunks.length) {
-      return null;
-    }
+  const streamAssistantResponse = async (request: ChatRequest) => {
+    let hasReceivedFirstToken = false;
 
-    const context = buildSuggestionContext({
-      transcriptChunks,
-      suggestionBatches,
-      chatMessages,
-      transcriptLimit: state.settings.suggestionContextChunkCount,
-      includeChat: true,
+    await streamChatResponse(request, (token) => {
+      if (!hasReceivedFirstToken) {
+        hasReceivedFirstToken = true;
+        replaceLastAssistantMessage(token);
+        return;
+      }
+
+      appendLastAssistantMessage(token);
     });
-
-    const transcriptText = formatTranscriptChunks(context.recentChunks);
-    const recentSuggestions = formatSuggestionHistory(
-      context.recentSuggestionBatches,
-    );
-    const basedOnChunkIds = context.recentChunks.map((chunk) => chunk.id);
-    const signature = [
-      basedOnChunkIds.join(","),
-      transcriptText,
-      recentSuggestions,
-      rollingSummary,
-      state.settings.suggestionPrompt,
-    ].join("::");
-
-    return {
-      apiKey: state.settings.groqApiKey,
-      rollingSummary,
-      transcriptText,
-      recentSuggestions,
-      basedOnChunkIds,
-      prompt: state.settings.suggestionPrompt,
-      signature,
-    };
   };
 
   const requestSuggestionBatch = async (snapshot: SuggestionSnapshot) =>
     loadSuggestions({
+      sessionId: snapshot.sessionId,
       apiKey: snapshot.apiKey,
       rollingSummary: snapshot.rollingSummary,
       transcriptText: snapshot.transcriptText,
@@ -243,11 +220,10 @@ function useSessionControllerValue(): SessionControllerValue {
     chunk: RecordedChunk,
     source: "auto" | "manual-flush",
   ) => {
-    const state = useSessionStore.getState();
     return transcribeChunk({
       blob: chunk.blob,
-      apiKey: state.settings.groqApiKey,
-      language: state.settings.language,
+      apiKey: getApiKey(),
+      language: useSessionStore.getState().settings.language,
       startedAt: chunk.startedAt,
       endedAt: chunk.endedAt,
       source,
@@ -288,13 +264,38 @@ function useSessionControllerValue(): SessionControllerValue {
   };
 
   const generateSuggestions = async (snapshot?: SuggestionSnapshot) => {
-    const nextSnapshot = snapshot ?? buildSuggestionSnapshot(useSessionStore.getState());
+    const nextSnapshot =
+      snapshot ??
+      buildSuggestionSnapshot(useSessionStore.getState(), getApiKey());
     if (!nextSnapshot) {
       return;
     }
 
     const batch = await loadSuggestionBatch(nextSnapshot, { visible: true });
     addSuggestionBatch(batch);
+  };
+
+  const enqueueContextMetadataRefresh = () => {
+    metadataCycleRef.current += 1;
+    if (metadataCycleRef.current < 2) {
+      return;
+    }
+
+    metadataCycleRef.current = 0;
+    const state = useSessionStore.getState();
+    const apiKey = getApiKey();
+    if (!apiKey || !state.transcriptChunks.length) {
+      return;
+    }
+
+    void refreshContextMetadata({
+      sessionId: state.startedAt,
+      apiKey,
+      rollingSummary: state.rollingSummary,
+      transcriptChunks: state.transcriptChunks,
+      suggestionBatches: state.suggestionBatches,
+      chatMessages: state.chatMessages,
+    }).catch(() => undefined);
   };
 
   const commitPendingAutoRefresh = (deadline: number) => {
@@ -314,6 +315,7 @@ function useSessionControllerValue(): SessionControllerValue {
     if (pendingAutoRefresh.transcriptChunk?.text.trim()) {
       addTranscriptChunk(pendingAutoRefresh.transcriptChunk);
       setRollingSummary(pendingAutoRefresh.rollingSummary);
+      enqueueContextMetadataRefresh();
     }
 
     if (pendingAutoRefresh.batch) {
@@ -358,6 +360,7 @@ function useSessionControllerValue(): SessionControllerValue {
       const transcriptChunk = await requestTranscriptChunk(pending, "auto");
       if (transcriptChunk.text.trim()) {
         commitTranscriptChunk(transcriptChunk, { mergeIntoLastChunk: true });
+        enqueueContextMetadataRefresh();
       }
     } finally {
       setFlags({ isTranscribing: false });
@@ -413,10 +416,14 @@ function useSessionControllerValue(): SessionControllerValue {
         }
       }
 
-      const snapshot = buildSuggestionSnapshot(useSessionStore.getState(), {
-        transcriptChunks,
-        rollingSummary,
-      });
+      const snapshot = buildSuggestionSnapshot(
+        useSessionStore.getState(),
+        getApiKey(),
+        {
+          transcriptChunks,
+          rollingSummary,
+        },
+      );
 
       const batch = snapshot ? await loadSuggestionBatch(snapshot) : null;
       if (autoRefreshTokenRef.current !== token || !isRecordingRef.current) {
@@ -461,14 +468,22 @@ function useSessionControllerValue(): SessionControllerValue {
       await startRecorderCycle();
     }
 
-    const state = useSessionStore.getState();
     setFlags({ isTranscribing: true });
     try {
       const transcriptChunk = await requestTranscriptChunk(chunk, source);
 
       if (transcriptChunk.text.trim()) {
         commitTranscriptChunk(transcriptChunk);
-        await generateSuggestions();
+        enqueueContextMetadataRefresh();
+        if (source === "manual-flush" && isManualRefreshRef.current) {
+          const snapshot = buildReloadSuggestionSnapshot(
+            useSessionStore.getState(),
+            getApiKey(),
+          );
+          await generateSuggestions(snapshot ?? undefined);
+        } else {
+          await generateSuggestions();
+        }
       }
     } finally {
       setFlags({ isTranscribing: false });
@@ -520,7 +535,7 @@ function useSessionControllerValue(): SessionControllerValue {
       invalidatePendingAutoRefresh();
 
       if (!state.isRecording) {
-        const snapshot = buildSuggestionSnapshot(state);
+        const snapshot = buildSuggestionSnapshot(state, getApiKey());
         await generateSuggestions(snapshot ?? undefined);
         return;
       }
@@ -533,7 +548,10 @@ function useSessionControllerValue(): SessionControllerValue {
       if (pending) {
         await transcribeAndMaybeContinue(pending, "manual-flush");
       } else {
-        const snapshot = buildSuggestionSnapshot(useSessionStore.getState());
+        const snapshot = buildReloadSuggestionSnapshot(
+          useSessionStore.getState(),
+          getApiKey(),
+        );
         await generateSuggestions(snapshot ?? undefined);
       }
     } catch (error) {
@@ -579,27 +597,22 @@ function useSessionControllerValue(): SessionControllerValue {
       id: assistantId,
       role: "assistant",
       createdAt: new Date().toISOString(),
-      text: "",
+      text: CHAT_PLACEHOLDER_TEXT,
       source: "assistant",
     });
 
     setFlags({ isChatStreaming: true });
     try {
-      await streamChatResponse(
+      await streamAssistantResponse(
         {
-          apiKey: state.settings.groqApiKey,
+          sessionId: state.startedAt,
+          apiKey: getApiKey(),
           rollingSummary: state.rollingSummary,
-          transcriptText: formatTranscriptChunks(
-            state.transcriptChunks.slice(-state.settings.chatContextChunkCount),
-          ),
-          chatMessages: state.chatMessages.map((chatMessage) => ({
-            role: chatMessage.role,
-            content: chatMessage.text,
-          })),
+          transcriptText: getChatTranscriptText(state),
+          chatMessages: getRecentChatMessages(state),
           prompt: state.settings.chatPrompt,
           userMessage: trimmed,
         },
-        appendLastAssistantMessage,
       );
     } catch (error) {
       setError(error instanceof Error ? error.message : "Chat failed");
@@ -610,14 +623,7 @@ function useSessionControllerValue(): SessionControllerValue {
 
   const clickSuggestion = async (suggestion: Suggestion) => {
     const state = useSessionStore.getState();
-    const seed = [
-      `Suggestion type: ${suggestion.type}`,
-      `Suggestion preview: ${suggestion.preview}`,
-      `Expand on this for the user: ${suggestion.detailedPromptSeed}`,
-      formatChatHistory(state.chatMessages.slice(-4)),
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+    const seed = buildSuggestionClickSeed(suggestion, state.chatMessages);
 
     addChatMessage({
       id: crypto.randomUUID(),
@@ -631,28 +637,23 @@ function useSessionControllerValue(): SessionControllerValue {
       id: crypto.randomUUID(),
       role: "assistant",
       createdAt: new Date().toISOString(),
-      text: "",
+      text: CHAT_PLACEHOLDER_TEXT,
       source: "assistant",
       relatedSuggestionId: suggestion.id,
     });
 
     setFlags({ isChatStreaming: true });
     try {
-      await streamChatResponse(
+      await streamAssistantResponse(
         {
-          apiKey: state.settings.groqApiKey,
+          sessionId: state.startedAt,
+          apiKey: getApiKey(),
           rollingSummary: state.rollingSummary,
-          transcriptText: formatTranscriptChunks(
-            state.transcriptChunks.slice(-state.settings.chatContextChunkCount),
-          ),
-          chatMessages: state.chatMessages.map((chatMessage) => ({
-            role: chatMessage.role,
-            content: chatMessage.text,
-          })),
+          transcriptText: getChatTranscriptText(state),
+          chatMessages: getRecentChatMessages(state),
           prompt: state.settings.detailedAnswerPrompt,
           userMessage: seed,
         },
-        appendLastAssistantMessage,
       );
     } catch (error) {
       setError(

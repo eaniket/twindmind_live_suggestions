@@ -6,8 +6,9 @@ import { formatTime } from "@/lib/time";
 
 const suggestionLabels = {
   question_to_ask: "Question to ask",
+  answer_to_give: "Answer to give",
   talking_point: "Talking point",
-  answer: "Answer",
+  next_step: "Next step",
   fact_check: "Fact-check",
 };
 

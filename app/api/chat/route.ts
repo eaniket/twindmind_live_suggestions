@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import type Groq from "groq-sdk";
+import { getStoredContextMetadata } from "@/lib/backend-session-store";
+import { formatChatContextMetadata } from "@/lib/context-metadata";
 import { createGroqClient } from "@/lib/groq";
 import { chatMessageInputSchema } from "@/lib/schemas";
 
 const requestSchema = z.object({
+  sessionId: z.string().min(1),
   apiKey: z.string().min(1),
   chatMessages: z.array(chatMessageInputSchema),
   transcriptText: z.string(),
@@ -25,6 +28,7 @@ export async function POST(request: NextRequest) {
   const input = requestSchema.parse(await request.json());
 
   try {
+    const contextMetadata = getStoredContextMetadata(input.sessionId);
     const groq = createGroqClient(input.apiKey);
     const stream = (await groq.chat.completions.create({
       model: "openai/gpt-oss-120b",
@@ -36,6 +40,7 @@ export async function POST(request: NextRequest) {
           role: "user",
           content: [
             `ROLLING_SUMMARY:\n${input.rollingSummary || "None"}`,
+            `CONTEXT_METADATA:\n${formatChatContextMetadata(contextMetadata)}`,
             `TRANSCRIPT_CONTEXT:\n${input.transcriptText || "None"}`,
             `USER_REQUEST:\n${input.userMessage}`,
           ].join("\n\n"),

@@ -1355,6 +1355,26 @@ Use this as the working checklist while building. The order matches the plan abo
 - add empty chat state UI
 - verify typed questions work before wiring suggestion clicks
 
+### Chat First-Token Latency Optimization - Completed
+
+Goal: reduce `chat send -> first token` latency by cutting prompt payload size, minimizing client-side pre-stream work, and improving perceived responsiveness in the UI.
+
+- [x] put the user message into the `streamChatResponse(...)` call immediately after creating the assistant placeholder
+- [x] avoid unnecessary preprocessing before `streamChatResponse(...)`
+- [x] keep the assistant bubble mounted before the first streamed token arrives
+- [x] show a lightweight `Thinking...` placeholder immediately while waiting for the first token
+- [x] shrink chat context aggressively for latency-sensitive chat requests
+- [x] reduce `chatContextChunkCount` when optimizing for first-token speed
+- [x] reduce chat history length sent into `/api/chat`
+- [x] reduce metadata verbosity to the highest-signal compact fields only
+- [x] keep `DEFAULT_CHAT_PROMPT` short, directive, and low-bloat
+- [x] verify first-token latency improvements compile cleanly with `npm run typecheck`
+- [x] implement chat-specific context narrowing:
+  - transcript window capped to 4 chunks
+  - chat history sent to `/api/chat` capped to 4 messages
+  - suggestion-click seed history capped to 2 messages
+  - chat metadata reduced to SUMMARY, MODE, NEED, TONE, and RISKS when present
+
 ### Phase 15: Suggestion Click Flow - Completed
 
 - create a `useSuggestionClick` helper or equivalent action
@@ -1378,14 +1398,30 @@ Use this as the working checklist while building. The order matches the plan abo
 - add a refresh button to the suggestions panel
 - create `handleRefresh`
 - if recording is active:
-  - generate suggestions only from transcript that is already visible on screen
-  - do not flush or transcribe the in-progress recorder chunk
+  - flush the in-progress recorder chunk
+  - transcribe the partial chunk as `manual-flush`
+  - append the new transcript before generating suggestions
   - do not restart or reset the timer
 - if recording is inactive:
   - generate suggestions from current transcript state
 - prevent concurrent refresh while already transcribing or generating
-- verify manual refresh never changes transcript state
+- verify manual refresh updates transcript state before suggestions
 - verify refresh does not duplicate or lose chunks
+
+### Reload Suggestion Latency Optimization - Completed
+
+Goal: reduce `Reload suggestions` latency after the transcript update step by shrinking the prompt payload used for suggestion generation.
+
+- [x] keep suggestion context smaller during manual reload
+- [x] reduce `suggestionContextChunkCount` when optimizing for reload speed
+- [x] reduce the amount of recent suggestion history sent into the suggestion request
+- [x] reduce the recent transcript window used for reload-generated suggestions
+- [x] cap recent suggestion history to the last 1 to 2 suggestion batches
+- [x] prefer the highest-signal compact context over broader continuity when reload speed is the priority
+- [x] verify suggestion quality remains acceptable after shrinking reload context via `npm run typecheck`
+- [x] implement reload-specific context narrowing:
+  - transcript limit capped to 2 chunks for manual reload suggestion generation
+  - recent suggestion history capped to the latest 1 batch for manual reload suggestion generation
 
 ### Phase 17: Recording Loop Control - Completed
 
@@ -1484,6 +1520,393 @@ Use this as the working checklist while building. The order matches the plan abo
 - feed it into suggestions and chat
 - verify it improves continuity without noticeable latency regression
 
+### Phase 26: Background Context Metadata Service - Completed
+
+Goal: add a lightweight background service that runs after every 2 committed transcript cycles and maintains a higher-level view of the current conversation. This metadata should improve suggestion timing and type selection without blocking the visible transcription or suggestion loop, and it should be persisted in the backend so other routes and prompts can read it directly.
+
+Implementation choice: use a server-side in-memory session store keyed by `sessionId`, a background metadata refresh queue per session, a `POST /api/context-metadata/refresh` enqueue route, and direct metadata reads inside `/api/suggestions` and `/api/chat`. The background metadata refresh also generates an LLM-written summary from the last 6 transcript chunks.
+
+#### The 5 metadata points that matter most
+
+1. `conversationMode`
+   Why it matters: this is the strongest driver of which suggestion type should appear next.
+   Example values: `discovery`, `brainstorming`, `status_update`, `problem_solving`, `planning`, `decision_making`, `wrap_up`.
+
+2. `toneAndPressure`
+   Why it matters: suggestions should sound different in a calm collaborative discussion versus a tense, skeptical, or urgent exchange.
+   Example values: `collaborative`, `neutral`, `skeptical`, `tense`, `urgent`.
+
+3. `userResponseNeed`
+   Why it matters: live suggestions are best when they match whether the user needs to ask, answer, clarify, defend, or close.
+   Example values: `ask_now`, `answer_now`, `reframe_now`, `decide_now`, `close_now`, `listen_only`.
+
+4. `expandedSuggestionAffinity`
+   Why it matters: this captures which suggestion type is actually being expanded by the user, which is the clearest behavioral signal of value.
+   Example shape: `{ dominantType: "question_to_ask", counts: { question_to_ask: 4, talking_point: 1 } }`
+
+5. `riskSignals`
+   Why it matters: this is the main guardrail for deciding when to surface `fact_check`, `next_step`, or sharper clarification prompts.
+   Example flags: `factual_uncertainty`, `misalignment`, `decision_ambiguity`, `ownership_gap`, `timeline_risk`.
+
+Do not add more top-level metadata than this. More fields will dilute reliability and create prompt noise faster than they add value.
+
+#### Implemented lifecycle
+
+- Keep this service fully off the critical path. Transcription and visible suggestion generation stay on the critical path.
+- After each committed transcript chunk, increment a local counter.
+- When the counter reaches 2, reset it and enqueue a background metadata refresh request. Do not `await` it from the transcribe flow.
+- The refresh should use the latest committed transcript, rolling summary, recent suggestion batches, and suggestion click history.
+- If a metadata refresh is already in flight for the same session, do not start another. Mark the session as `queued` or `stale` and let the current refresh finish first.
+- Suggestions should always use the latest completed metadata snapshot from backend storage, never wait for a new refresh to finish.
+- If the metadata service is slow or fails, main services should continue exactly as they do today.
+
+#### Concurrency rule
+
+The metadata service must never delay the main loop.
+
+- Best case: run in parallel with the next recording/transcribe cycle.
+- Minimum acceptable behavior: start only after the current transcript commit and suggestion request have already been dispatched.
+- Not acceptable: any design where transcription, visible suggestion generation, or chat waits for metadata generation.
+
+The cleanest model is a fire-and-forget enqueue from the client and backend-owned processing:
+
+```ts
+if (transcriptChunk.text.trim()) {
+  commitTranscriptChunk(transcriptChunk);
+  void enqueueContextMetadataRefresh();
+  await generateSuggestions();
+}
+```
+
+This works because `generateSuggestions()` reads the last completed metadata snapshot, not the one being computed right now.
+
+#### Backend ownership
+
+Do not treat this as only client state. The backend should own the durable metadata record for the session so all services can read the same snapshot.
+
+- The client should send a background refresh signal with `sessionId` and the latest `basedOnChunkIds`.
+- The backend should compute and persist the metadata snapshot.
+- `/api/suggestions` should read the latest stored metadata for that session.
+- `/api/chat` can also read it later if needed for better answer framing.
+- The client may optionally mirror the latest snapshot in Zustand for debugging or UI, but the backend copy is the source of truth.
+
+#### Proposed state shape
+
+```ts
+export type ContextMetadata = {
+  sessionId: string;
+  createdAt: string;
+  updatedAt: string;
+  status: "ready" | "refreshing" | "stale" | "failed";
+  basedOnChunkIds: string[];
+  llmSummary: string;
+  conversationMode:
+    | "discovery"
+    | "brainstorming"
+    | "status_update"
+    | "problem_solving"
+    | "planning"
+    | "decision_making"
+    | "wrap_up";
+  toneAndPressure:
+    | "collaborative"
+    | "neutral"
+    | "skeptical"
+    | "tense"
+    | "urgent";
+  userResponseNeed:
+    | "ask_now"
+    | "answer_now"
+    | "reframe_now"
+    | "decide_now"
+    | "close_now"
+    | "listen_only";
+  expandedSuggestionAffinity: {
+    dominantType: string | null;
+    countsByType: Record<string, number>;
+  };
+  riskSignals: Array<
+    | "factual_uncertainty"
+    | "misalignment"
+    | "decision_ambiguity"
+    | "ownership_gap"
+    | "timeline_risk"
+  >;
+};
+```
+
+Suggested backend table or document shape:
+
+```ts
+type StoredContextMetadata = ContextMetadata & {
+  version: number;
+  error?: string;
+};
+```
+
+Storage can be a DB table, Redis JSON record, or any session-scoped document store. The main requirement is fast read access by `sessionId`.
+
+#### Suggested trigger point in the controller
+
+This should happen immediately after `commitTranscriptChunk(...)`, because that is the point where transcript state and rolling summary are stable.
+
+```ts
+const metadataCycleRef = useRef(0);
+
+const enqueueContextMetadataRefresh = async () => {
+  metadataCycleRef.current += 1;
+  if (metadataCycleRef.current < 2) {
+    return;
+  }
+
+  metadataCycleRef.current = 0;
+  const state = useSessionStore.getState();
+  void fetch("/api/context-metadata/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionId: state.startedAt,
+      basedOnChunkIds: state.transcriptChunks.slice(-6).map((chunk) => chunk.id),
+    }),
+  });
+};
+```
+
+Then wire it beside the existing transcript commit path:
+
+```ts
+if (transcriptChunk.text.trim()) {
+  commitTranscriptChunk(transcriptChunk);
+  void enqueueContextMetadataRefresh();
+  await generateSuggestions();
+}
+```
+
+#### Suggested backend API shape
+
+`POST /api/context-metadata/refresh`
+
+- Input: `sessionId`, latest `basedOnChunkIds`
+- Behavior:
+  - verify whether a refresh is already running for that session
+  - if yes, mark session metadata as `stale` and return immediately
+  - if no, start background computation and return immediately with `202 Accepted`
+- Output: queue acknowledgement only, not the computed metadata
+
+`GET /api/context-metadata`
+
+- Input: `sessionId`
+- Output: latest persisted metadata snapshot for that session
+
+#### Suggested metadata inputs
+
+```ts
+function buildMetadataSnapshot(state: SessionState) {
+  return {
+    sessionId: state.startedAt,
+    rollingSummary: state.rollingSummary,
+    transcriptText: formatTranscriptChunks(state.transcriptChunks.slice(-6)),
+    recentSuggestions: state.suggestionBatches.slice(0, 3),
+    expandedSuggestionTypes: state.chatMessages
+      .filter((message) => message.source === "suggestion_click")
+      .slice(-10),
+  };
+}
+```
+
+Backend-side, the refresh worker should read the canonical session context from storage rather than trusting only the client payload.
+
+#### How suggestions should use this metadata
+
+Do not dump raw JSON into the prompt if it can be avoided. Serialize it into a compact guidance block that the suggestion prompt can consume reliably.
+
+```ts
+function formatContextMetadata(metadata: ContextMetadata | null) {
+  if (!metadata) {
+    return "None";
+  }
+
+  return [
+    `CONVERSATION_MODE: ${metadata.conversationMode}`,
+    `TONE_AND_PRESSURE: ${metadata.toneAndPressure}`,
+    `USER_RESPONSE_NEED: ${metadata.userResponseNeed}`,
+    `DOMINANT_EXPANDED_TYPE: ${metadata.expandedSuggestionAffinity.dominantType ?? "none"}`,
+    `RISK_SIGNALS: ${metadata.riskSignals.join(", ") || "none"}`,
+  ].join("\\n");
+}
+```
+
+Then pass it into the suggestion request alongside transcript and rolling summary:
+
+```ts
+const content = [
+  `ROLLING_SUMMARY:\n${input.rollingSummary || "None"}`,
+  `CONTEXT_METADATA:\n${input.contextMetadata || "None"}`,
+  `RECENT_TRANSCRIPT:\n${input.transcriptText}`,
+  `RECENT_SUGGESTION_BATCHES:\n${input.recentSuggestions || "None"}`,
+  "Return exactly 3 suggestions.",
+].join("\n\n");
+```
+
+`/api/suggestions` should load this metadata before calling the model:
+
+```ts
+const contextMetadata = await getStoredContextMetadata(input.sessionId);
+
+const content = [
+  `ROLLING_SUMMARY:\n${input.rollingSummary || "None"}`,
+  `CONTEXT_METADATA:\n${formatContextMetadata(contextMetadata)}`,
+  `RECENT_TRANSCRIPT:\n${input.transcriptText}`,
+  `RECENT_SUGGESTION_BATCHES:\n${input.recentSuggestions || "None"}`,
+  "Return exactly 3 suggestions.",
+].join("\n\n");
+```
+
+#### Design notes
+
+- This service should influence suggestion selection, not replace transcript grounding.
+- `expandedSuggestionAffinity` should be treated as a soft preference, not a hard routing rule, otherwise the system will overfit to one suggestion type.
+- `riskSignals` should be sparse. If everything is always marked risky, `fact_check` quality will collapse.
+- If metadata generation fails, keep using the last successful metadata snapshot from backend storage and continue normal suggestions.
+- If latency becomes noticeable, first reduce metadata refresh frequency before shrinking transcript context.
+- If backend queueing is unavailable, fall back to a best-effort async route handler that returns immediately and updates storage after response dispatch. Still do not block the main loop.
+
+#### Completed todo list
+
+- [x] Define the data contract
+- add `ContextMetadata` and `StoredContextMetadata` types in shared types
+- define enums or string unions for `conversationMode`, `toneAndPressure`, `userResponseNeed`, and `riskSignals`
+- define a request type for `POST /api/context-metadata/refresh`
+- define a response type for `GET /api/context-metadata`
+- decide whether `expandedSuggestionAffinity.countsByType` remains a free-form map or is narrowed to known suggestion tags
+
+- [x] Decide the backend storage model
+- choose the storage layer for session metadata: database table, Redis record, or session-scoped document store
+- define the storage key as `sessionId`
+- decide retention and cleanup policy for old metadata records
+- decide whether metadata records need optimistic versioning
+- decide whether transcript context also needs backend persistence now or whether metadata generation can work from current request payloads in the first iteration
+
+- [x] Design the session persistence dependency
+- define how backend services will retrieve canonical session context for a given `sessionId`
+- decide whether transcript chunks, suggestion batches, and suggestion-click history must be persisted server-side for this phase
+- if yes, list the minimum session artifacts to store in backend-readable form
+- if no, document the temporary limitation that metadata quality depends on client-provided snapshots
+- define how `/api/suggestions` and `/api/chat` will resolve `sessionId`
+
+- [x] Add validation schemas
+- add Zod schema for stored metadata
+- add Zod schema for metadata refresh requests
+- add Zod schema for metadata refresh worker output
+- add parser/validator for storage reads so corrupt metadata does not break suggestions
+
+- [x] Create backend metadata storage helpers
+- add a helper to read metadata by `sessionId`
+- add a helper to upsert metadata by `sessionId`
+- add a helper to update metadata `status` without overwriting the last successful snapshot
+- add a helper to mark a snapshot `stale`, `refreshing`, `ready`, or `failed`
+- decide whether to store `error` and `version` on every write
+
+- [x] Design the background refresh route
+- create the contract for `POST /api/context-metadata/refresh`
+- make the route return immediately with queue acknowledgement semantics
+- define how the route detects an in-flight refresh for the same session
+- define what happens when a refresh is already running: ignore, mark stale, or collapse duplicate work
+- define how the route records refresh timestamps for observability
+
+- [x] Design the metadata read route
+- create the contract for `GET /api/context-metadata`
+- define its behavior when no snapshot exists yet
+- decide whether it returns `404`, `204`, or an explicit empty payload
+- ensure the route can be consumed by suggestions, chat, and future UI debug surfaces
+
+- [x] Design the metadata generation step
+- define the exact model input used to derive metadata
+- decide whether to use the current LLM provider or a cheaper/faster route for metadata generation
+- define the structured output shape returned by the model
+- define fallback behavior if the model returns partial or invalid structured output
+- ensure the metadata prompt is short and stable so it does not create prompt bloat
+
+- [x] Define the metadata prompt
+- write a dedicated metadata-generation system prompt
+- instruct it to output exactly the 5 approved metadata points and nothing extra
+- instruct it to prefer stable classifications over overfitted nuance
+- instruct it to use `expandedSuggestionAffinity` as observed behavior, not speculation
+- instruct it to keep `riskSignals` sparse and evidence-based
+- [x] Add an LLM-generated recent-context summary to the metadata snapshot
+- generate it from the last 6 transcript chunks in the same background refresh job
+- persist it with the rest of the context metadata so suggestions and chat can read it
+
+- [x] Add controller-side orchestration
+- add a local cycle counter for committed transcript chunks
+- increment it only after a successful committed transcript append
+- enqueue the background refresh after every second committed chunk
+- ensure the enqueue call is fire-and-forget and not awaited
+- ensure manual refresh and stop-recording paths do not accidentally enqueue overlapping metadata work too aggressively
+
+- [x] Protect the main loop from contention
+- verify that transcription completion does not wait for metadata enqueue acknowledgement
+- verify that suggestion generation continues even if metadata enqueue fails
+- verify that chat requests do not wait for metadata refresh completion
+- define a timeout budget for metadata refresh work that is separate from transcribe and suggestion time budgets
+- define a concurrency cap of one in-flight refresh per session
+
+- [x] Feed metadata into suggestions
+- add `sessionId` to the suggestion request contract if it is not already there
+- load the latest stored metadata inside `/api/suggestions`
+- format metadata into a compact prompt block
+- ensure suggestions use the last completed metadata snapshot, not an in-progress one
+- define behavior when metadata is missing, stale, or failed
+
+- [x] Decide whether chat should consume metadata in this phase
+- decide whether `/api/chat` should read context metadata now or later
+- if now, define the exact metadata fields that improve answer framing
+- if later, document that the read path is intentionally suggestions-only in Phase 26
+
+- [x] Track suggestion expansion behavior
+- define how clicked suggestions map into `expandedSuggestionAffinity`
+- decide whether this is computed live in memory, persisted per session, or derived from stored chat history
+- decide how many recent suggestion clicks to consider
+- define how to handle renamed or newly added suggestion types over time
+- ensure a missing click history does not degrade metadata generation
+
+- [x] Handle failure and stale-state behavior
+- preserve the last successful snapshot if a refresh fails
+- mark metadata `failed` without clearing previously good fields
+- mark metadata `stale` when new transcript chunks arrive during an in-flight refresh
+- decide when a stale snapshot is still acceptable for prompts
+- define retry behavior for transient backend or model failures
+
+- [x] Add observability
+- log refresh enqueue events with `sessionId` and chunk ids
+- log refresh start and finish timestamps
+- log when duplicate refreshes are collapsed
+- log metadata validation failures separately from provider failures
+- add lightweight counters for refresh success rate and average latency
+
+- [x] Add testing tasks
+- test that metadata enqueue starts only after every second committed transcript chunk
+- test that transcription latency is unaffected when metadata refresh is enabled
+- test that suggestion generation continues while metadata refresh is in flight
+- test that `/api/suggestions` reads the latest successful snapshot
+- test that an invalid metadata model response does not break the session
+- test that duplicate refresh requests for the same session do not overlap
+- test that a failed refresh preserves the prior ready snapshot
+
+- [x] Add manual QA tasks
+- run a multi-chunk session and confirm metadata updates in the background without visible delay
+- confirm suggestions keep rendering on normal cadence while metadata refreshes happen
+- confirm a hard metadata failure does not stop transcript or suggestion updates
+- confirm metadata changes actually influence suggestion type selection in later cycles
+- inspect stored records and confirm `status`, `basedOnChunkIds`, and timestamps update correctly
+
+- [x] Document rollout constraints
+- document that Phase 26 should not change visible UX until quality is confirmed
+- document storage requirements for deployment environments
+- document the temporary backend session assumptions if full session persistence is not yet in place
+- document how to disable metadata refresh quickly if it causes instability
+- document the follow-up phase for using the same metadata in chat and analytics
+
 ### Phase 25: Flash Reload Purge - Completed
 
 - [x] remove the `Flash reload` toggle from the settings dialog UI
@@ -1513,7 +1936,7 @@ Use this as the working checklist while building. The order matches the plan abo
   - [x] the settings dialog has no flash reload option
   - [x] the reload button has only one normal mode
   - [x] stopping the mic stops all countdown-driven suggestion activity
-  - [x] reload only generates a fresh visible suggestion batch
+  - [x] reload flushes/transcribes the in-progress chunk first, then generates a fresh suggestion batch
   - [x] no hidden prefetch state remains anywhere in the UI or runtime flow
 
 ### Phase 23: Final QA - Completed

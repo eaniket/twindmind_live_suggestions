@@ -452,14 +452,19 @@ button {
   color: var(--accent);
 }
 
+.suggestion-tag.answer_to_give {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--good);
+}
+
 .suggestion-tag.talking_point {
   background: rgba(179, 136, 255, 0.15);
   color: var(--accent-2);
 }
 
-.suggestion-tag.answer {
-  background: rgba(74, 222, 128, 0.15);
-  color: var(--good);
+.suggestion-tag.next_step {
+  background: rgba(251, 146, 60, 0.15);
+  color: #f97316;
 }
 
 .suggestion-tag.fact_check {

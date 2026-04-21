@@ -1,4 +1,10 @@
-import type { ChatMessage, SuggestionBatch, TranscriptChunk } from "@/types/session";
+import type {
+  ChatMessage,
+  SessionContextRecord,
+  StoredContextMetadata,
+  SuggestionBatch,
+  TranscriptChunk,
+} from "@/types/session";
 
 export type TranscribeRequest = {
   blob: Blob;
@@ -10,6 +16,7 @@ export type TranscribeRequest = {
 };
 
 export type SuggestionsRequest = {
+  sessionId: string;
   apiKey: string;
   rollingSummary: string;
   transcriptText: string;
@@ -24,6 +31,7 @@ export type ChatApiMessage = {
 };
 
 export type ChatRequest = {
+  sessionId: string;
   apiKey: string;
   chatMessages: ChatApiMessage[];
   transcriptText: string;
@@ -32,6 +40,21 @@ export type ChatRequest = {
   userMessage: string;
 };
 
+export type ContextMetadataRefreshRequest = {
+  sessionId: string;
+  apiKey: string;
+  rollingSummary: string;
+  transcriptChunks: TranscriptChunk[];
+  suggestionBatches: SuggestionBatch[];
+  chatMessages: ChatMessage[];
+};
+
+export type ContextMetadataRefreshResponse = {
+  status: "started" | "queued";
+};
+
+export type ContextMetadataResponse = StoredContextMetadata | null;
+export type SessionContextResponse = SessionContextRecord | null;
+
 export type TranscribeResponse = TranscriptChunk;
 export type SuggestionsResponse = SuggestionBatch;
-export type ChatHistoryMessage = Pick<ChatMessage, "role" | "text">;

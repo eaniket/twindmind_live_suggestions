@@ -1,11 +1,14 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getStoredContextMetadata } from "@/lib/backend-session-store";
+import { formatContextMetadata } from "@/lib/context-metadata";
 import { createGroqClient } from "@/lib/groq";
 import { suggestionBatchSchema } from "@/lib/schemas";
 import type { SuggestionType } from "@/types/session";
 
 const requestSchema = z.object({
+  sessionId: z.string().min(1),
   apiKey: z.string().min(1),
   rollingSummary: z.string(),
   transcriptText: z.string().min(1),
@@ -37,8 +40,9 @@ const responseSchema = {
             type: "string",
             enum: [
               "question_to_ask",
+              "answer_to_give",
               "talking_point",
-              "answer",
+              "next_step",
               "fact_check",
             ] as SuggestionType[],
           },
@@ -76,6 +80,7 @@ export async function POST(request: NextRequest) {
   const input = requestSchema.parse(await request.json());
 
   try {
+    const contextMetadata = getStoredContextMetadata(input.sessionId);
     const groq = createGroqClient(input.apiKey);
     const completion = (await groq.chat.completions.create({
       model: "openai/gpt-oss-120b",
@@ -86,6 +91,7 @@ export async function POST(request: NextRequest) {
           role: "user",
           content: [
             `ROLLING_SUMMARY:\n${input.rollingSummary || "None"}`,
+            `CONTEXT_METADATA:\n${formatContextMetadata(contextMetadata)}`,
             `RECENT_TRANSCRIPT:\n${input.transcriptText}`,
             `RECENT_SUGGESTION_BATCHES:\n${input.recentSuggestions || "None"}`,
             "Return exactly 3 suggestions.",

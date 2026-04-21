@@ -7,14 +7,15 @@ import type {
 export function buildSuggestionContext(input: {
   transcriptChunks: TranscriptChunk[];
   suggestionBatches: SuggestionBatch[];
-  chatMessages: ChatMessage[];
   transcriptLimit: number;
-  includeChat: boolean;
+  suggestionBatchLimit?: number;
 }) {
   return {
     recentChunks: input.transcriptChunks.slice(-input.transcriptLimit),
-    recentSuggestionBatches: input.suggestionBatches.slice(0, 2),
-    recentChat: input.includeChat ? input.chatMessages.slice(-4) : [],
+    recentSuggestionBatches: input.suggestionBatches.slice(
+      0,
+      input.suggestionBatchLimit ?? 2,
+    ),
   };
 }
 
