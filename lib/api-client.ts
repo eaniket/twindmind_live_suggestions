@@ -1,6 +1,7 @@
 import { parseApiError } from "@/lib/errors";
 import type {
   ChatRequest,
+  ContextMetadataResponse,
   ContextMetadataRefreshRequest,
   ContextMetadataRefreshResponse,
   SuggestionsRequest,
@@ -96,4 +97,18 @@ export async function refreshContextMetadata(
   }
 
   return (await response.json()) as ContextMetadataRefreshResponse;
+}
+
+export async function getContextMetadata(
+  sessionId: string,
+): Promise<ContextMetadataResponse> {
+  const response = await fetch(
+    `/api/context-metadata?sessionId=${encodeURIComponent(sessionId)}`,
+  );
+
+  if (!response.ok) {
+    await parseApiError(response);
+  }
+
+  return (await response.json()) as ContextMetadataResponse;
 }

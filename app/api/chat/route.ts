@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import type Groq from "groq-sdk";
+import { buildApiErrorResponse } from "@/lib/api-error-response";
 import { getStoredContextMetadata } from "@/lib/backend-session-store";
 import { formatChatContextMetadata } from "@/lib/context-metadata";
 import { createGroqClient } from "@/lib/groq";
@@ -71,12 +72,11 @@ export async function POST(request: NextRequest) {
       },
     );
   } catch (error) {
+    const apiError = buildApiErrorResponse(error, "Chat request failed");
+
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Chat request failed",
-      },
-      { status: 500 },
+      { error: apiError.message },
+      { status: apiError.status },
     );
   }
 }

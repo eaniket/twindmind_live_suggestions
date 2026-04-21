@@ -5,10 +5,14 @@ import { TranscriptPanel } from "@/components/transcript-panel";
 import { SuggestionsPanel } from "@/components/suggestions-panel";
 import { ChatPanel } from "@/components/chat-panel";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { getContextMetadata } from "@/lib/api-client";
 import { useSessionStore, getDefaultSettings } from "@/lib/session-store";
 import { downloadJson, buildExportPayload } from "@/lib/export-session";
 import { SessionControllerProvider } from "@/lib/session-controller";
 import { readStoredSettings, settingsStorageKey } from "@/lib/settings-storage";
+
+const MISSING_API_KEY_ERROR =
+  "Add your Groq API key in settings before using the app";
 
 export function AppShell() {
   const isSettingsOpen = useSessionStore((state) => state.isSettingsOpen);
@@ -16,6 +20,7 @@ export function AppShell() {
   const hydrateSettings = useSessionStore((state) => state.hydrateSettings);
   const settings = useSessionStore((state) => state.settings);
   const error = useSessionStore((state) => state.error);
+  const clearSessionError = useSessionStore((state) => state.clearSessionError);
 
   useEffect(() => {
     const storedSettings = readStoredSettings();
@@ -30,10 +35,28 @@ export function AppShell() {
     window.sessionStorage.setItem(settingsStorageKey, JSON.stringify(settings));
   }, [settings]);
 
-  const exportSession = () => {
+  useEffect(() => {
+    if (
+      error === MISSING_API_KEY_ERROR &&
+      settings.groqApiKey.trim()
+    ) {
+      clearSessionError();
+    }
+  }, [clearSessionError, error, settings.groqApiKey]);
+
+  const exportSession = async () => {
+    const state = useSessionStore.getState();
+    let contextMetadata = null;
+
+    try {
+      contextMetadata = await getContextMetadata(state.startedAt);
+    } catch {
+      contextMetadata = null;
+    }
+
     downloadJson(
       `twinmind-session-${Date.now()}.json`,
-      buildExportPayload(useSessionStore.getState()),
+      buildExportPayload(state, contextMetadata),
     );
   };
 
@@ -49,7 +72,7 @@ export function AppShell() {
             {error ? <span className="error-text">{error}</span> : null}
             <button
               className="subtle-button white-border-button"
-              onClick={exportSession}
+              onClick={() => void exportSession()}
               type="button"
             >
               Export

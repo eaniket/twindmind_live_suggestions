@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { buildApiErrorResponse } from "@/lib/api-error-response";
 import { getStoredContextMetadata } from "@/lib/backend-session-store";
 import { formatContextMetadata } from "@/lib/context-metadata";
 import { createGroqClient } from "@/lib/groq";
@@ -131,14 +132,14 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(batch);
   } catch (error) {
+    const apiError = buildApiErrorResponse(
+      error,
+      "Suggestion generation request failed",
+    );
+
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Suggestion generation request failed",
-      },
-      { status: 500 },
+      { error: apiError.message },
+      { status: apiError.status },
     );
   }
 }
