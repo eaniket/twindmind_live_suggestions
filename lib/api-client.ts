@@ -1,6 +1,8 @@
 import { parseApiError } from "@/lib/errors";
 import type {
   ChatRequest,
+  ContextMetadataRefreshRequest,
+  ContextMetadataRefreshResponse,
   SuggestionsRequest,
   TranscribeRequest,
   SuggestionsResponse,
@@ -78,4 +80,20 @@ export async function streamChatResponse(
     }
     onToken(decoder.decode(value, { stream: true }));
   }
+}
+
+export async function refreshContextMetadata(
+  request: ContextMetadataRefreshRequest,
+): Promise<ContextMetadataRefreshResponse> {
+  const response = await fetch("/api/context-metadata/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    await parseApiError(response);
+  }
+
+  return (await response.json()) as ContextMetadataRefreshResponse;
 }
